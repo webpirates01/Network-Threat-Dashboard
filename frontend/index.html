@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Network Threat Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0f1117; color: #e2e8f0; font-family: monospace; padding: 20px; }
+    h1 { font-size: 18px; color: #60a5fa; margin-bottom: 20px; letter-spacing: 1px; }
+
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+    .stat-card { background: #1e2130; border: 1px solid #2d3748; border-radius: 8px; padding: 16px; text-align: center; }
+    .stat-card .label { font-size: 11px; color: #718096; text-transform: uppercase; letter-spacing: 1px; }
+    .stat-card .value { font-size: 28px; font-weight: bold; margin-top: 6px; }
+
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .panel { background: #1e2130; border: 1px solid #2d3748; border-radius: 8px; padding: 16px; }
+    .panel h2 { font-size: 13px; color: #718096; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { text-align: left; color: #718096; padding: 4px 8px; border-bottom: 1px solid #2d3748; }
+    td { padding: 6px 8px; border-bottom: 1px solid #1a202c; }
+    tr:last-child td { border-bottom: none; }
+
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; }
+    .critical { background: #7f1d1d; color: #fca5a5; }
+    .high     { background: #78350f; color: #fcd34d; }
+    .medium   { background: #1e3a5f; color: #93c5fd; }
+    .low      { background: #1a2e1a; color: #86efac; }
+
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .live-dot { background: #22c55e; }
+  </style>
+</head>
+<body>
+
+<h1><span class="dot live-dot"></span>Network Threat Dashboard</h1>
+
+<div class="stats">
+  <div class="stat-card"><div class="label">Total Logs</div><div class="value" id="total_logs" style="color:#60a5fa">—</div></div>
+  <div class="stat-card"><div class="label">Total Alerts</div><div class="value" id="total_alerts" style="color:#f59e0b">—</div></div>
+  <div class="stat-card"><div class="label">Critical</div><div class="value" id="critical" style="color:#ef4444">—</div></div>
+  <div class="stat-card"><div class="label">Unique IPs</div><div class="value" id="unique_ips" style="color:#a78bfa">—</div></div>
+</div>
+
+<div class="grid">
+  <div class="panel">
+    <h2>Traffic over time</h2>
+    <canvas id="trafficChart" height="180"></canvas>
+  </div>
+  <div class="panel">
+    <h2>Live alert feed</h2>
+    <table>
+      <thead><tr><th>Time</th><th>Type</th><th>IP</th><th>Severity</th></tr></thead>
+      <tbody id="alert-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const API = "http://localhost:5000";
+
+const ctx = document.getElementById("trafficChart").getContext("2d");
+const chart = new Chart(ctx, {
+  type: "line",
+  data: { labels: [], datasets: [{ label: "packets/min", data: [], borderColor: "#60a5fa", backgroundColor: "rgba(96,165,250,0.1)", tension: 0.4, fill: true }] },
+  options: { plugins: { legend: { display: false } }, scales: { x: { ticks: { color: "#718096" }, grid: { color: "#2d3748" } }, y: { ticks: { color: "#718096" }, grid: { color: "#2d3748" } } } }
+});
+
+async function refresh() {
+  // Stats
+  const stats = await fetch(`${API}/stats`).then(r => r.json());
+  ["total_logs","total_alerts","critical","unique_ips"].forEach(k => {
+    document.getElementById(k).textContent = stats[k] ?? "—";
+  });
+
+  // Traffic chart
+  const traffic = await fetch(`${API}/traffic`).then(r => r.json());
+  chart.data.labels   = traffic.map(t => t.minute);
+  chart.data.datasets[0].data = traffic.map(t => t.count);
+  chart.update();
+
+  // Alerts
+  const alerts = await fetch(`${API}/alerts`).then(r => r.json());
+  const tbody = document.getElementById("alert-body");
+  tbody.innerHTML = alerts.slice(0, 15).map(a => `
+    <tr>
+      <td>${a.time}</td>
+      <td>${a.type.replace("_"," ")}</td>
+      <td style="color:#60a5fa">${a.src_ip}</td>
+      <td><span class="badge ${a.severity}">${a.severity}</span></td>
+    </tr>`).join("");
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>
